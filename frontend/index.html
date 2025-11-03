@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>VC Tracker</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; background:#07102a; color:#e6f2ff; margin:0; padding:20px; }
+    .container{ max-width:1100px; margin:0 auto; }
+    h1{ margin:0 0 10px 0; }
+    .channel { background:#0e2a54; padding:12px; border-radius:8px; margin-bottom:10px; }
+    .channel h3 { margin:0 0 6px 0; font-size:18px; }
+    .members{ margin-left:8px; }
+    .empty{ color:#9bb7db; font-style:italic; }
+    #status { font-size:13px; color:#9bb7db; margin-bottom:12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Discord Voice Channels — Live</h1>
+    <div id="status">Connecting...</div>
+    <div id="list"></div>
+  </div>
+
+  <script>
+    // Change to your backend events URL
+    const EVENTS_URL = 'https://your-backend.example.com/events';
+
+    const statusEl = document.getElementById('status');
+    const listEl = document.getElementById('list');
+
+    function renderState(state) {
+      // state: { guildId: { guildName, channels: {channelName: [members] }, updated } }
+      listEl.innerHTML = '';
+      const guildKeys = Object.keys(state);
+      if (!guildKeys.length) {
+        listEl.innerHTML = '<div class="empty">No voice activity yet.</div>';
+        return;
+      }
+
+      for (const gid of guildKeys) {
+        const g = state[gid];
+        const guildTitle = document.createElement('h2');
+        guildTitle.textContent = g.guildName || 'Guild';
+        listEl.appendChild(guildTitle);
+
+        const channels = g.channels || {};
+        const channelNames = Object.keys(channels);
+        if (!channelNames.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = 'No active voice channels.';
+          listEl.appendChild(empty);
+          continue;
+        }
+
+        for (const chName of channelNames) {
+          const members = channels[chName];
+
+          const chDiv = document.createElement('div');
+          chDiv.className = 'channel';
+          chDiv.innerHTML = `<h3>🎧 ${chName} — ${members.length} member(s)</h3>`;
+
+          const ul = document.createElement('ul');
+          ul.className = 'members';
+          for (const m of members) {
+            const li = document.createElement('li');
+            li.textContent = m.username + (m.tag ? ` (${m.tag})` : '');
+            ul.appendChild(li);
+          }
+          chDiv.appendChild(ul);
+          listEl.appendChild(chDiv);
+        }
+      }
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    // Connect SSE
+    const es = new EventSource(EVENTS_URL);
+
+    es.onopen = () => setStatus('Connected — waiting for updates...');
+    es.onerror = (e) => setStatus('Connection lost — retrying...');
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (!data) return;
+        if (data.type === 'init') {
+          renderState(data.payload || {});
+          setStatus('Initial data received');
+        } else if (data.type === 'vc-update') {
+          // build a local snapshot: merge or replace the guild's data
+          // For simplicity we'll fetch current snapshot first and then apply updates
+          // We'll maintain a top-level state object
+          if (!window.vcState) window.vcState = {};
+          const guild = data.payload;
+          if (guild && guild.guildId) {
+            window.vcState[guild.guildId] = guild;
+          }
+          renderState(window.vcState);
+          setStatus('Last update: ' + new Date().toLocaleTimeString());
+        } else {
+          // fallback: if payload is raw state
+          renderState(data.payload || data);
+        }
+      } catch (err) {
+        console.error('SSE parse error', err);
+      }
+    };
+  </script>
+</body>
+</html>
